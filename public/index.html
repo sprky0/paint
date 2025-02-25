@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Background & Drawing Tool</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      cursor: none; /* Hide default cursor */
+    }
+    
+    #drop-zone {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.05);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: #333;
+      font-family: Arial, sans-serif;
+      z-index: 1;
+    }
+    
+    #drop-zone.hidden {
+      display: none;
+    }
+    
+    #background {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-size: cover;
+      background-position: center;
+      z-index: 0;
+      transition: filter 0.3s ease;
+    }
+    
+    #canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+    }
+    
+    #cursor {
+      position: fixed;
+      width: 30px;
+      height: 30px;
+      pointer-events: none;
+      z-index: 3;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='28' height='28' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.5 11c.5 1.5 2.5 2 4 2.5 1.5.5 1.5 1.5 1.5 2.5 0 1.5-1.5 2.5-3 2.5-2 0-3-1-3.5-2'%3E%3C/path%3E%3Cpath d='M10 8V5c0-1.5-.5-3-3-3-2 0-2.5 1.5-2.5 3 0 3 2.5 7 7 10 4 2.5 5.5 1.5 7.5 1 2-.5 3.5-1 4-3.5.5-1.5-1-2.5-1.5-3-4-5-7.5-2-7.5-2'%3E%3C/path%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      transform: translate(-40%, -40%) rotate(45deg);
+      filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.7));
+    }
+    
+    .instructions {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      background-color: rgba(255, 255, 255, 0.8);
+      padding: 10px 15px;
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      z-index: 4;
+      max-width: 300px;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    
+    .instructions.collapsed {
+      max-height: 40px;
+      overflow: hidden;
+      padding: 10px 15px 5px;
+      cursor: pointer;
+    }
+    
+    .instructions ul {
+      margin-left: 20px;
+      margin-top: 10px;
+    }
+    
+    .instructions h3 {
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .instructions h3::after {
+      content: "−";
+      font-size: 16px;
+      font-weight: bold;
+    }
+    
+    .instructions.collapsed h3::after {
+      content: "+";
+    }
+  </style>
+</head>
+<body>
+  <div id="drop-zone">
+    <h1>Drag & Drop an Image Here</h1>
+    <p>Drag any image file from your computer to set it as the background</p>
+  </div>
+  
+  <div id="background"></div>
+  <canvas id="canvas"></canvas>
+  <div id="cursor"></div>
+  
+  <div class="instructions">
+    <h3>Instructions:</h3>
+    <ul>
+      <li>Drag an image to set as background</li>
+      <li>Move mouse and click to draw</li>
+      <li>Hold SHIFT to dim background</li>
+      <li>Press SPACEBAR to clear drawing</li>
+      <li>Press ESC to reset everything</li>
+    </ul>
+  </div>
+
+  <script>
+    // Elements
+    const dropZone = document.getElementById('drop-zone');
+    const background = document.getElementById('background');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const cursor = document.getElementById('cursor');
+    
+    // Variables
+    let isDrawing = false;
+    let isDimming = false;
+    let lastX = 0;
+    let lastY = 0;
+    
+    // Initialize canvas size
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    
+    // Set up event listeners
+    function init() {
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+      
+      // Drag and drop handling
+      document.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.style.backgroundColor = 'rgba(0, 0, 0, 0.2)';
+      });
+      
+      document.addEventListener('dragleave', () => {
+        dropZone.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
+      });
+      
+      document.addEventListener('drop', handleImageDrop);
+      
+      // Drawing handling
+      document.addEventListener('mousedown', startDrawing);
+      document.addEventListener('mousemove', draw);
+      document.addEventListener('mouseup', stopDrawing);
+      document.addEventListener('mouseleave', stopDrawing);
+      
+      // Key handling
+      document.addEventListener('keydown', handleKeyDown);
+      document.addEventListener('keyup', handleKeyUp);
+      
+      // Custom cursor
+      document.addEventListener('mousemove', updateCursorPosition);
+    }
+    
+    // Handle dropped image files
+    function handleImageDrop(e) {
+      e.preventDefault();
+      
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.match('image.*')) {
+        const reader = new FileReader();
+        
+        reader.onload = function(event) {
+          background.style.backgroundImage = `url(${event.target.result})`;
+          dropZone.classList.add('hidden');
+        };
+        
+        reader.readAsDataURL(file);
+      }
+    }
+    
+    // Update cursor position
+    function updateCursorPosition(e) {
+      cursor.style.left = `${e.clientX}px`;
+      cursor.style.top = `${e.clientY}px`;
+    }
+    
+    // Drawing functions
+    function startDrawing(e) {
+      isDrawing = true;
+      [lastX, lastY] = [e.clientX, e.clientY];
+    }
+    
+    function draw(e) {
+      if (!isDrawing) return;
+      
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#fff';
+      
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(e.clientX, e.clientY);
+      ctx.stroke();
+      
+      [lastX, lastY] = [e.clientX, e.clientY];
+    }
+    
+    function stopDrawing() {
+      isDrawing = false;
+    }
+    
+    // Handle key presses
+    function handleKeyDown(e) {
+      // Dim background with SHIFT
+      if (e.key === 'Shift' && !isDimming) {
+        isDimming = true;
+        background.style.filter = 'brightness(0.5)';
+      }
+      
+      // Clear canvas with SPACE
+      if (e.code === 'Space') {
+        clearCanvas();
+        e.preventDefault(); // Prevent page scrolling
+      }
+      
+      // Reset everything with ESC
+      if (e.key === 'Escape') {
+        resetAll();
+      }
+    }
+    
+    function handleKeyUp(e) {
+      if (e.key === 'Shift') {
+        isDimming = false;
+        background.style.filter = 'brightness(1)';
+      }
+    }
+    
+    // Clear the canvas
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    
+    // Reset everything
+    function resetAll() {
+      clearCanvas();
+      background.style.backgroundImage = '';
+      background.style.filter = 'brightness(1)';
+      dropZone.classList.remove('hidden');
+      isDimming = false;
+    }
+    
+    // Toggle instructions panel
+    function toggleInstructions() {
+      const instructions = document.querySelector('.instructions');
+      instructions.classList.toggle('collapsed');
+    }
+    
+    // Add click handler for instructions toggle
+    function setupInstructionsToggle() {
+      const instructions = document.querySelector('.instructions');
+      const instructionsTitle = document.querySelector('.instructions h3');
+      
+      // Set initial state (expanded)
+      instructions.classList.add('collapsed');
+      
+      // Add click event to the title
+      instructionsTitle.addEventListener('click', toggleInstructions);
+      instructions.addEventListener('click', function(e) {
+        if (instructions.classList.contains('collapsed')) {
+          toggleInstructions();
+        }
+      });
+    }
+    
+    // Initialize the app
+    init();
+    setupInstructionsToggle();
+  </script>
+</body>
+</html>
